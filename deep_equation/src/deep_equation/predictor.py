@@ -2,9 +2,15 @@
 Predictor interfaces for the Deep Learning challenge.
 """
 
+import os
 from typing import List
+
+import torch
+import torchvision.transforms as T
 import numpy as np
 
+from deep_equation.model import Model
+from deep_equation.transformations import image_transform
 
 class BaseNet:
     """
@@ -71,30 +77,49 @@ class RandomModel(BaseNet):
         return predictions
 
 
-class StudentModel(BaseNet):
-    """
-    TODO: THIS is the class you have to implement:
-        load_model: method that loads your best model.
-        predict: method that makes batch predictions.
-    """
+default_model_path = '../../resources/models/modelo_desafio_mod_lenet5_norm.pth'
 
-    # TODO
-    def load_model(self, model_path: str):
+class StudentModel(BaseNet):
+    def load_model(self, model_path: str = default_model_path, device='cpu'):
         """
         Load the student's trained model.
-        TODO: update the default `model_path` 
-              to be the correct path for your best model!
         """
-        pass
+        dirname = os.path.dirname(__file__)
+        filename = os.path.join(dirname, model_path)
+        model = Model()
+        model.load_state_dict(torch.load(filename, map_location=torch.device(device)))
+        return model
     
-    # TODO:
     def predict(
         self, images_a, images_b,
         operators, device = 'cpu'
     ):
-        """Implement this method to perform predictions 
-        given a list of images_a, images_b and operators.
-        """
-        predictions = []
+        model = self.load_model(device=device)
+        model.eval()
+
+        processed_images_a = torch.stack([self.preprocess(img) for img in images_a]).to(device)
+        processed_images_b = torch.stack([self.preprocess(img) for img in images_b]).to(device)
+        operator_indexes = self.operator_indexes(operators).to(device)
         
-        return predictions
+        with torch.no_grad():
+            outputs = model(processed_images_a, processed_images_b, operator_indexes)
+            outputs = outputs.argmax(1)
+            predictions = [float(model.classes[outputs[i]]) for i in range(len(outputs))]
+            return predictions
+
+    def preprocess(self, image):
+        image = image_transform()(image)
+        return T.functional.adjust_brightness(image, 10)
+
+    def operator_indexes(self, operators):
+        return torch.tensor([[self.operator_index(operator)] for operator in operators])
+
+    def operator_index(self, operator):
+        if operator == '+':
+            return 0
+        elif operator == '-':
+            return 1
+        elif operator == '*':
+            return 2
+        elif operator == '/':
+            return 3
